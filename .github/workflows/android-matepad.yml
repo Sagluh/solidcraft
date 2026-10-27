@@ -48,10 +48,13 @@ jobs:
         working-directory: apps/solidcraft-web
         run: trunk build --release --public-url ./
 
+      - name: Check built files exist
+        run: ls -la apps/solidcraft-web/dist
+
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: '${{ github.workspace }}/apps/solidcraft-web/dist'
+          path: apps/solidcraft-web/dist
 
   deploy:
     needs: build-web
