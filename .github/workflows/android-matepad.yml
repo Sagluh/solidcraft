@@ -1,0 +1,77 @@
+name: Build Huawei MatePad APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK & NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android NDK r27 and Build Tools
+        run: |
+          sdkmanager --install "ndk;27.2.12479018" "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> $GITHUB_ENV
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> $GITHUB_ENV
+
+      - name: Install Rust 1.95+ (aarch64-linux-android)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Cache Cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Patch wgpu texture limit for Huawei MatePad (4096)
+        run: |
+          python3 - << 'EOF'
+          import pathlib
+          for path in pathlib.Path("vendor/egui-wgpu").rglob("*.rs"):
+              text = path.read_text()
+              if "max_texture_dimension_2d: 8192" in text and "or_worse_values_from" not in text:
+                  text = text.replace(
+                      "max_texture_dimension_2d: 8192,",
+                      "max_texture_dimension_2d: 4100,"
+                  )
+                  path.write_text(text)
+                  print(f"Patched texture limit in {path}")
+          EOF
+
+      - name: Build ARM64 native library and package APK
+        run: |
+          cargo install xbuild --locked
+          x build --release --platform android --arch arm64 --format apk
+
+      - name: Sign APK for installation
+        run: |
+          mkdir -p dist
+          RAW_APK=$(find . -name "*.apk" | grep -v "unaligned" | head -n 1)
+          
+          keytool -genkey -v -keystore matepad.keystore -storepass solidcraft123 \
+            -alias solidcraft -keypass solidcraft123 \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=SolidCraft, OU=CAD, O=OpenSource, L=City, S=State, C=NL"
+
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -p -f 4 "$RAW_APK" dist/solidcraft-aligned.apk
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks matepad.keystore --ks-pass pass:solidcraft123 \
+            --out dist/SolidCraft-MatePad-arm64.apk dist/solidcraft-aligned.apk
+
+      - name: Upload ready APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SolidCraft-MatePad-arm64
+          path: dist/SolidCraft-MatePad-arm64.apk
