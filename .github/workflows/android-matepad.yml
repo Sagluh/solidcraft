@@ -48,11 +48,10 @@ jobs:
         working-directory: apps/solidcraft-web
         run: trunk build --release --public-url ./
 
-      - name: Upload artifact for GitHub Pages
-        uses: actions/upload-artifact@v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: github-pages
-          path: apps/solidcraft-web/dist
+          path: '${{ github.workspace }}/apps/solidcraft-web/dist'
 
   deploy:
     needs: build-web
