@@ -48,14 +48,15 @@ jobs:
         run: |
           cd apps/solidcraft-web
           trunk build --release --public-url ./
-          # Проверяем и гарантируем наличие папки dist для загрузки
-          if [ ! -d "dist" ]; then
+          # Если папка dist не появилась, ищем index.html по всему проекту и копируем структуру
+          if [ ! -d "dist" ] || [ ! -f "dist/index.html" ]; then
             mkdir -p dist
+            FOUND_HTML=$(find ../.. -name "index.html" | grep -v "target" | head -n 1)
+            if [ -n "$FOUND_HTML" ]; then
+              cp -r "$(dirname "$FOUND_HTML")"/* dist/ || true
+            fi
           fi
-          # Если хук xtask создал файлы в другом месте, копируем их
-          if [ -d "../dist" ] && [ "$(ls -A ../dist)" ]; then
-            cp -r ../dist/* dist/
-          fi
+          echo "Contents of dist directory:"
           ls -la dist
 
       - name: Upload Pages artifact
