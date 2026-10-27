@@ -44,10 +44,19 @@ jobs:
                   print(f"Patched texture limit in {path}")
           EOF
 
-      - name: Build Web App with Trunk
+      - name: Build Web App with Trunk & xtask
         run: |
           cd apps/solidcraft-web
           trunk build --release --public-url ./
+          # Проверяем и гарантируем наличие папки dist для загрузки
+          if [ ! -d "dist" ]; then
+            mkdir -p dist
+          fi
+          # Если хук xtask создал файлы в другом месте, копируем их
+          if [ -d "../dist" ] && [ "$(ls -A ../dist)" ]; then
+            cp -r ../dist/* dist/
+          fi
+          ls -la dist
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
