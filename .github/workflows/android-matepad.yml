@@ -21,6 +21,9 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Cache Cargo build
+        uses: Swatinem/rust-cache@v2
+
       - name: Install Trunk via Cargo
         run: cargo install --locked trunk
 
@@ -44,12 +47,10 @@ jobs:
           cd apps/solidcraft-web
           trunk build --release --public-url ./
 
-      - name: List built files for debug
-        run: ls -la apps/solidcraft-web/dist
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload artifact for GitHub Pages
+        uses: actions/upload-artifact@v4
         with:
+          name: github-pages
           path: apps/solidcraft-web/dist
 
   deploy:
