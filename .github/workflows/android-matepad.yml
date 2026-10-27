@@ -48,21 +48,11 @@ jobs:
         run: |
           cd apps/solidcraft-web
           trunk build --release --public-url ./
-          # Если папка dist не появилась, ищем index.html по всему проекту и копируем структуру
-          if [ ! -d "dist" ] || [ ! -f "dist/index.html" ]; then
-            mkdir -p dist
-            FOUND_HTML=$(find ../.. -name "index.html" | grep -v "target" | head -n 1)
-            if [ -n "$FOUND_HTML" ]; then
-              cp -r "$(dirname "$FOUND_HTML")"/* dist/ || true
-            fi
-          fi
-          echo "Contents of dist directory:"
-          ls -la dist
 
-      - name: Upload Pages artifact
+      - name: Archive entire app folder for Pages
         uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/solidcraft-web/dist
+          path: apps/solidcraft-web
 
   deploy:
     needs: build-web
