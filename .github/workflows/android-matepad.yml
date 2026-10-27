@@ -1,4 +1,4 @@
-name: Build Huawei MatePad APK
+name: Build MatePad Web App (PWA)
 
 on:
   workflow_dispatch:
@@ -7,38 +7,24 @@ on:
       - main
 
 jobs:
-  build-apk:
+  build-web:
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Setup Android SDK & NDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'platforms;android-35 build-tools;35.0.0 ndk;27.2.12479018'
-
-      - name: Accept Android Licenses
-        run: yes | sdkmanager --licenses || true
-
-      - name: Install Rust 1.95+ (aarch64-linux-android)
+      - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android
+          targets: wasm32-unknown-unknown
 
-      - name: Cache Cargo build
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install cargo-ndk and xbuild
-        run: |
-          cargo install cargo-ndk --locked
-          cargo install xbuild --locked
+      - name: Install Trunk tool
+        uses: jetli/trunk-action@v0.5.0
+        with:
+          version: 'latest'
 
       - name: Patch wgpu texture limit for Huawei MatePad (4096)
         run: |
@@ -55,26 +41,20 @@ jobs:
                   print(f"Patched texture limit in {path}")
           EOF
 
-      - name: Build ARM64 native library and package APK
+      - name: Build Web App with Trunk
         run: |
-          x build --release --platform android --arch arm64 --format apk
+          cd apps/solidcraft-web
+          trunk build --release --public-url ./
 
-      - name: Sign APK for installation
-        run: |
-          mkdir -p dist
-          RAW_APK=$(find . -name "*.apk" | grep -v "unaligned" | head -n 1)
-          
-          keytool -genkey -v -keystore matepad.keystore -storepass solidcraft123 \
-            -alias solidcraft -keypass solidcraft123 \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=SolidCraft, OU=CAD, O=OpenSource, L=City, S=State, C=NL"
-
-          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -p -f 4 "$RAW_APK" dist/solidcraft-aligned.apk
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign --ks matepad.keystore --ks-pass pass:solidcraft123 \
-            --out dist/SolidCraft-MatePad-arm64.apk dist/solidcraft-aligned.apk
-
-      - name: Upload ready APK artifact
-        uses: actions/upload-artifact@v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: SolidCraft-MatePad-arm64
-          path: dist/SolidCraft-MatePad-arm64.apk
+          path: apps/solidcraft-web/dist
+
+  deploy:
+    needs: build-web
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
