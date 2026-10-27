@@ -6,6 +6,11 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   build-web:
     runs-on: ubuntu-latest
@@ -40,9 +45,8 @@ jobs:
           EOF
 
       - name: Build Web App with Trunk
-        run: |
-          cd apps/solidcraft-web
-          trunk build --release --public-url ./
+        working-directory: apps/solidcraft-web
+        run: trunk build --release --public-url ./
 
       - name: Upload artifact for GitHub Pages
         uses: actions/upload-artifact@v4
@@ -53,10 +57,6 @@ jobs:
   deploy:
     needs: build-web
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-      contents: read
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
