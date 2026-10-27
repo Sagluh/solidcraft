@@ -9,9 +9,6 @@ on:
 jobs:
   build-web:
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -56,6 +53,10 @@ jobs:
   deploy:
     needs: build-web
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+      contents: read
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
