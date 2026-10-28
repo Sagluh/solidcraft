@@ -762,6 +762,16 @@ impl SolveApp {
         app
     }
 
+    /// Return true for a touch in the exposed 3D scene, not on floating CAD
+    /// panels or the view cube. Used only by the Android touch adapter.
+    #[cfg(target_os = "android")]
+    pub fn touch_hits_model_viewport(&self, at: egui::Pos2) -> bool {
+        let Some(rect) = self.viewport.rect else { return false };
+        rect.contains(at)
+            && !crate::shell::covered(self, at)
+            && !crate::viewport::axis_rect(self, rect).contains(at)
+    }
+
     /// Translate text using the active language preference.
     pub fn tr<'a>(&self, text: &'a str) -> &'a str {
         i18n::Locale::for_language(&self.preferences.language).text(text)

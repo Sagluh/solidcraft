@@ -29,6 +29,8 @@ target_sdk_version = 30
 
 [package.metadata.android.application]
 label = "SolidCraft MatePad"
+# Do not overlay Android status icons on SolidCraft CAD toolbar.
+theme = "@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
 
 [lints.rust]
 # Android NativeActivity requires the exported android_main symbol.
