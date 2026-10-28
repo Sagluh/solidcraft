@@ -28,5 +28,6 @@ target_sdk_version = 30
 [package.metadata.android.application]
 label = "SolidCraft MatePad"
 
-[lints]
-workspace = true
+[lints.rust]
+# Android NativeActivity requires the exported android_main symbol.
+unsafe_code = "allow"
