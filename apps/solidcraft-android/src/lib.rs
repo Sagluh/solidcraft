@@ -1,14 +1,18 @@
 //! Native Android entry point using the actual SolidCraft CAD engine and egui interface.
 //! This shares the same SolveApp frontend as desktop and web. Platform-specific file
 //! services are deliberately disabled until Android storage access is implemented.
+mod android_files;
+
+use android_files::AndroidFiles;
 use eframe::egui;
 use solidcraft_engine::Session;
-use solidcraft_ui_egui::{Services, SolveApp};
+use solidcraft_ui_egui::SolveApp;
 use solidcraft_ui_egui::viewport::NavMode;
 
 struct MatePadApp {
     cad: SolveApp,
     touch: TouchNavigation,
+    files: AndroidFiles,
 }
 
 /// The Android touch driver emulates the primary mouse button for a finger.
@@ -94,18 +98,19 @@ impl TouchNavigation {
 }
 
 impl MatePadApp {
-    fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    fn new(cc: &eframe::CreationContext<'_>, android: android_activity::AndroidApp) -> Self {
         // The default desktop-scale typography was too small on MatePad.
         cc.egui_ctx.set_pixels_per_point(1.6);
         solidcraft_ui_egui::fonts::setup_fonts(&cc.egui_ctx);
         solidcraft_ui_egui::gpu::install_cpu_picture_renderer();
 
-        let mut cad = SolveApp::new(Session::default(), Services::default());
+        let files = AndroidFiles::new(android.clone());
+        let mut cad = SolveApp::new(Session::default(), android_files::services(&android));
         if let Some(render_state) = &cc.wgpu_render_state {
             // The Android window has no depth attachment; CAD scene depth is offscreen.
             cad.set_wgpu_split(render_state, 24, 0, 1);
         }
-        Self { cad, touch: TouchNavigation::default() }
+        Self { cad, touch: TouchNavigation::default(), files }
     }
 }
 
@@ -134,6 +139,7 @@ impl eframe::App for MatePadApp {
             }
         }
         self.cad.logic(ctx);
+        self.files.tick(&mut self.cad);
     }
 
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
@@ -183,13 +189,13 @@ fn android_main(android: android_activity::AndroidApp) {
         android_logger::Config::default().with_max_level(log::LevelFilter::Info),
     );
     let options = eframe::NativeOptions {
-        android_app: Some(android),
+        android_app: Some(android.clone()),
         ..Default::default()
     };
     if let Err(error) = eframe::run_native(
         "SolidCraft MatePad",
         options,
-        Box::new(|cc| Ok(Box::new(MatePadApp::new(cc)))),
+        Box::new(move |cc| Ok(Box::new(MatePadApp::new(cc, android.clone())))),
     ) {
         log::error!("Failed to launch SolidCraft: {error}");
     }

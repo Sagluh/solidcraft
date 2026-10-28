@@ -17,11 +17,15 @@ solidcraft-ui-egui = { workspace = true }
 android-activity = { version = "0.6", features = ["native-activity"] }
 log = { workspace = true }
 android_logger = "0.15"
+jni = "0.22.4"
 
 [package.metadata.android]
 package = "dev.solidcraft.matepad"
 apk_name = "SolidCraftMatePad"
 build_targets = ["aarch64-linux-android"]
+use_aapt2 = true
+manifest_override = "android/AndroidManifest.xml"
+java_sources = "java"
 
 [package.metadata.android.sdk]
 min_sdk_version = 26

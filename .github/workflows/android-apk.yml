@@ -65,8 +65,8 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Install cargo-apk
-        run: cargo install cargo-apk --locked
+      - name: Install cargo-apk2 with Java packaging
+        run: cargo install cargo-apk2 --version 1.5.0 --locked
 
       - name: Check project structure
         shell: bash
@@ -82,7 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           cd apps/solidcraft-android
-          cargo apk build --target aarch64-linux-android
+          cargo apk2 build --target aarch64-linux-android
 
       - name: Collect installable APK only
         shell: bash
@@ -92,7 +92,7 @@ jobs:
 
           # cargo-apk also emits an intermediate *-unaligned.apk.
           # It is NOT installable. Keep only the packaged, signed APK.
-          APK="$(find . -type f -name 'SolidCraftMatePad.apk' -print -quit)"
+          APK="$(find . -type f -name 'SolidCraftMatePad*.apk' ! -name '*unaligned*' ! -name '*unsigned*' -print -quit)"
           if [ -z "$APK" ]; then
             echo "::error::Installable SolidCraftMatePad.apk not found"
             exit 1
