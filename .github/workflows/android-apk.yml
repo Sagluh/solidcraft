@@ -19,8 +19,9 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android Platform 30 and Build Tools
+      - name: Install Android Platform and Build Tools
         run: |
+          yes | sdkmanager --licenses || true
           sdkmanager "platforms;android-30" "build-tools;30.0.3"
 
       - name: Install Rust stable with aarch64 target
