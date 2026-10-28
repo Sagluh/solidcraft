@@ -62,6 +62,8 @@ jobs:
 
       - name: Cache Cargo build
         uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
 
       - name: Install cargo-apk
         run: cargo install cargo-apk --locked
