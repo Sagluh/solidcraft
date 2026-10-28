@@ -16,9 +16,12 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Install Android SDK Platform 30
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android Platform 30 and Build Tools
         run: |
-          echo "y" | ${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager --sdk_root=${ANDROID_HOME} "platforms;android-30" "build-tools;30.0.3"
+          sdkmanager "platforms;android-30" "build-tools;30.0.3"
 
       - name: Install Rust stable with aarch64 target
         uses: dtolnay/rust-toolchain@stable
