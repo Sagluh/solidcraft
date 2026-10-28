@@ -3,6 +3,10 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/android-apk.yml'
 
 jobs:
   build-apk:
@@ -32,7 +36,7 @@ jobs:
           test -x "$SDKMANAGER"
           "$SDKMANAGER" --version
 
-          yes | "$SDKMANAGER" --sdk_root="$SDK" --licenses || true
+          "$SDKMANAGER" --sdk_root="$SDK" --licenses < /dev/null || true
 
           "$SDKMANAGER" --sdk_root="$SDK" \
             "platforms;android-30" \
