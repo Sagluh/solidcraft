@@ -84,22 +84,27 @@ jobs:
           cd apps/solidcraft-android
           cargo apk build --target aarch64-linux-android
 
-      - name: Collect APK
+      - name: Collect installable APK only
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p apk-output
 
-          find . -type f -name "*.apk" \
-            -exec cp -v {} apk-output/ \;
+          # cargo-apk also emits an intermediate *-unaligned.apk.
+          # It is NOT installable. Keep only the packaged, signed APK.
+          APK="$(find . -type f -name 'SolidCraftMatePad.apk' -print -quit)"
+          if [ -z "$APK" ]; then
+            echo "::error::Installable SolidCraftMatePad.apk not found"
+            exit 1
+          fi
 
-          test -n "$(find apk-output -name '*.apk' -print -quit)"
-
+          cp -v "$APK" apk-output/SolidCraftMatePad.apk
+          "$ANDROID_HOME/build-tools/30.0.3/apksigner" verify --verbose apk-output/SolidCraftMatePad.apk
           ls -lh apk-output/
 
-      - name: Upload APK artifact
+      - name: Upload installable APK
         uses: actions/upload-artifact@v4
         with:
-          name: solidcraft-apk
-          path: apk-output/*.apk
+          name: solidcraft-matepad-installable
+          path: apk-output/SolidCraftMatePad.apk
           if-no-files-found: error
