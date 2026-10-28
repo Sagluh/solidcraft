@@ -12,6 +12,8 @@ crate-type = ["cdylib"]
 [dependencies]
 eframe = { workspace = true, features = ["default_fonts", "wgpu", "android-native-activity"] }
 egui = { workspace = true }
+solidcraft-engine = { workspace = true }
+solidcraft-ui-egui = { workspace = true }
 android-activity = { version = "0.6", features = ["native-activity"] }
 log = { workspace = true }
 android_logger = "0.15"
