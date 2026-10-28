@@ -111,6 +111,28 @@ impl MatePadApp {
 
 impl eframe::App for MatePadApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Android provides Touch events for both fingers. Unlike desktop
+        // mouse input, these are not forwarded as scroll/zoom wheel events.
+        // Apply the genuine two-finger gesture to the CAD camera before
+        // updating the rest of the application.
+        if let Some(gesture) = ctx.input(|input| input.multi_touch())
+            && self.cad.touch_hits_model_viewport(gesture.center_pos)
+        {
+            let zoom = (gesture.zoom_delta as f64).clamp(0.6, 1.7);
+            if zoom.is_finite() && (zoom - 1.0).abs() > 0.0001 {
+                self.cad.cancel_view_animation();
+                self.cad.cam.zoom_at(1.0 / zoom, None);
+            }
+            let delta = gesture.translation_delta;
+            if delta.is_finite() && delta != egui::Vec2::ZERO {
+                self.cad.cancel_view_animation();
+                let height = self.cad.viewport.rect.map_or(600.0, |rect| rect.height().max(1.0));
+                self.cad.cam.pan(delta.x as f64, delta.y as f64, height as f64);
+            }
+            if (zoom - 1.0).abs() > 0.0001 || delta != egui::Vec2::ZERO {
+                ctx.request_repaint();
+            }
+        }
         self.cad.logic(ctx);
     }
 
@@ -121,6 +143,37 @@ impl eframe::App for MatePadApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.cad.ui(ui);
+
+        // Large, explicit plane targets: a finger shouldn't have to hit the
+        // tiny 3D origin squares to start sketching. The original plane/face
+        // picker remains available behind this touch-only helper.
+        if self.cad.picking_sketch_plane() {
+            egui::Area::new(egui::Id::new("matepad_sketch_planes"))
+                .anchor(egui::Align2::CENTER_TOP, egui::vec2(0.0, 92.0))
+                .order(egui::Order::Foreground)
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::default()
+                        .fill(egui::Color32::from_rgb(30, 37, 48))
+                        .inner_margin(12.0)
+                        .corner_radius(10.0)
+                        .show(ui, |ui| {
+                            ui.heading("Плоскость эскиза");
+                            ui.label("Нажмите XY, XZ, YZ или коснитесь грани модели");
+                            ui.add_space(7.0);
+                            ui.horizontal(|ui| {
+                                for name in ["XY", "XZ", "YZ"] {
+                                    if ui.add_sized([94.0, 48.0], egui::Button::new(name)).clicked() {
+                                        let plane = solidcraft_engine::Sel::Plane { name: name.to_owned() };
+                                        match solidcraft_ui_egui::dialogs::start_sketch(&mut self.cad, &plane) {
+                                            Ok(()) => self.cad.dialog = None,
+                                            Err(message) => self.cad.set_status(message, true),
+                                        }
+                                    }
+                                }
+                            });
+                        });
+                });
+        }
     }
 }
 
