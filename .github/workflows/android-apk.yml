@@ -1,3 +1,4 @@
+
 name: Build Android APK
 
 on:
@@ -5,7 +6,8 @@ on:
 
 jobs:
   build-apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -13,22 +15,38 @@ jobs:
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK Platform 30
+      - name: Set up Android SDK and NDK
+        shell: bash
         run: |
-          # Устанавливаем командную строку Android SDK через sdkmanager без лишних экшенов
-          sudo apt-get update && sudo apt-get install -y android-sdk
-          export ANDROID_HOME="/usr/lib/android-sdk"
-          
-          # Принимаем лицензии и ставим платформу 30
-          yes | sdkmanager --sdk_root=${ANDROID_HOME} --licenses || true
-          sdkmanager --sdk_root=${ANDROID_HOME} "platforms;android-30" "build-tools;30.0.3"
-          
-          echo "ANDROID_HOME=${ANDROID_HOME}" >> $GITHUB_ENV
+          set -euo pipefail
 
-      - name: Install Rust stable with aarch64 target
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
+
+          test -x "$SDKMANAGER"
+          "$SDKMANAGER" --version
+
+          yes | "$SDKMANAGER" --sdk_root="$SDK" --licenses || true
+
+          "$SDKMANAGER" --sdk_root="$SDK" \
+            "platforms;android-30" \
+            "build-tools;30.0.3" \
+            "platform-tools" \
+            "ndk;26.3.11579264"
+
+          NDK="$SDK/ndk/26.3.11579264"
+          test -d "$NDK"
+
+          echo "NDK_HOME=$NDK" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$NDK" >> "$GITHUB_ENV"
+
+      - name: Install Rust stable with Android target
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
@@ -37,15 +55,40 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-apk
-        run: cargo install cargo-apk
+        run: cargo install cargo-apk --locked
+
+      - name: Check project structure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f apps/solidcraft/Cargo.toml
+          echo "SolidCraft Cargo.toml found"
+          rustc --version
+          cargo --version
 
       - name: Build APK for Android
+        shell: bash
         run: |
+          set -euo pipefail
           cd apps/solidcraft
-          cargo apk build --release
+          cargo apk build --target aarch64-linux-android
+
+      - name: Collect APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p apk-output
+
+          find . -type f -name "*.apk" \
+            -exec cp -v {} apk-output/ \;
+
+          test -n "$(find apk-output -name '*.apk' -print -quit)"
+
+          ls -lh apk-output/
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: solidcraft-apk
-          path: target/android/apk/release/*.apk
+          path: apk-output/*.apk
+          if-no-files-found: error
