@@ -151,6 +151,10 @@ impl MatePadApp {
 
         let files = AndroidFiles::new(android.clone());
         let mut cad = SolveApp::new(Session::default(), android_files::services(&android));
+        // Android MatePad edition starts in Russian regardless of the system
+        // locale. This is an Android-only preference; desktop remains unchanged.
+        // Users can still select another language in Preferences for this run.
+        cad.preferences.language = "ru".to_owned();
         if let Some(render_state) = &cc.wgpu_render_state {
             // The Android window has no depth attachment; CAD scene depth is offscreen.
             cad.set_wgpu_split(render_state, 24, 0, 1);
