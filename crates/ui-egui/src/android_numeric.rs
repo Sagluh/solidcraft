@@ -249,8 +249,10 @@ pub(crate) fn value_field(
                     let confirmed = if active.replace { value.clone() } else { active.draft };
                     if *value != confirmed {
                         *value = confirmed;
-                        response.mark_changed();
                     }
+                    // Even an unchanged live value becomes a locked CAD
+                    // dimension when Done is pressed.
+                    response.mark_changed();
                     accept = true;
                     set_confirm(&ctx);
                     ctx.data_mut(|data| data.remove::<Active>(pad_id()));
