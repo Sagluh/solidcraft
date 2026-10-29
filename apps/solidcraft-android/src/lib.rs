@@ -261,6 +261,12 @@ impl MatePadApp {
         if self.cad.autosave.is_none() {
             return;
         }
+        // Live sketch dragging writes one undo snapshot per input frame. The
+        // editor collapses those into a single undo action when the finger
+        // lifts. Count it only *after* that consolidation, not as five edits.
+        if self.cad.viewport.point_drag.is_some() {
+            return;
+        }
         let session = &self.cad.session;
         let now = Instant::now();
         let item = self.autosave_steps.entry(session.uid)
