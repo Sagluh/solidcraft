@@ -5,7 +5,8 @@ mod android_files;
 
 use android_files::AndroidFiles;
 use eframe::egui;
-use solidcraft_engine::Session;
+use solidcraft_engine::{Sel, Session};
+use serde_json::json;
 use solidcraft_ui_egui::SolveApp;
 use solidcraft_ui_egui::viewport::NavMode;
 
@@ -161,6 +162,92 @@ impl MatePadApp {
         }
         Self { cad, touch: TouchNavigation::default(), files }
     }
+
+    /// Android sketch editing controls: select/drag by touch without needing
+    /// Escape, a hardware mouse, or a keyboard shortcut. Fix is OPTIONAL:
+    /// normal unpinned geometry remains editable until the user locks it.
+    fn sketch_touch_toolbar(&mut self, ctx: &egui::Context) {
+        let Some(sid) = self.cad.session.active_sketch else { return };
+        let drawing = self.cad.tool.is_some();
+        let selections: Vec<String> = self.cad.session.selection.iter().filter_map(|item| match item {
+            Sel::SketchCurve { id, .. } | Sel::SketchPoint { id } => Some(id.clone()),
+            _ => None,
+        }).collect();
+        let (all, all_locked) = {
+            let world = self.cad.session.world_state();
+            let Some(sketch) = world.sketch(sid).map(|ss| &ss.sketch) else { return };
+            let all = sketch.curves.iter().filter(|c| c.link.is_none())
+                .map(|c| Sel::SketchCurve { id: c.id.clone(), sketch: None })
+                .collect::<Vec<_>>();
+            let all_locked = !selections.is_empty() && selections.iter().all(|id| {
+                sketch.curve_index(id).is_some_and(|i| sketch.curve_locked(i))
+                    || sketch.resolve_point(id).is_some_and(|i| sketch.point_locked(i))
+            });
+            (all, all_locked)
+        };
+        #[derive(Clone, Copy)]
+        enum Action { Select, SelectAll, Fix, Move }
+        let mut action: Option<Action> = None;
+        egui::Area::new(egui::Id::new("matepad_sketch_edit_tools"))
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -150.0))
+            .order(egui::Order::Foreground)
+            .show(ctx, |ui| {
+                egui::Frame::default()
+                    .fill(egui::Color32::from_rgb(29, 38, 51))
+                    .corner_radius(10.0)
+                    .inner_margin(egui::Margin::symmetric(10, 7))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if drawing {
+                                if ui.add_sized([176.0, 46.0], egui::Button::new("Выбрать / двигать")).clicked() {
+                                    action = Some(Action::Select);
+                                }
+                            } else {
+                                if ui.add_sized([125.0, 46.0], egui::Button::new("Выделить всё")).clicked() {
+                                    action = Some(Action::SelectAll);
+                                }
+                                if !selections.is_empty() {
+                                    if ui.add_sized([136.0, 46.0], egui::Button::new(
+                                        if all_locked { "Освободить" } else { "Закрепить" }
+                                    )).clicked() {
+                                        action = Some(Action::Fix);
+                                    }
+                                    if ui.add_sized([130.0, 46.0], egui::Button::new("Переместить…")).clicked() {
+                                        action = Some(Action::Move);
+                                    }
+                                }
+                            }
+                        });
+                    });
+            });
+        match action {
+            Some(Action::Select) => {
+                // Dropping the active drawing tool leaves already committed
+                // geometry intact; its unfinished preview is discarded.
+                self.cad.tool = None;
+                self.cad.set_status("Режим выбора: коснитесь линии или перетащите её".to_owned(), false);
+            }
+            Some(Action::SelectAll) => {
+                if let Err(error) = self.cad.run("select.set", json!({"items":all,"add":false})) {
+                    self.cad.set_status(error.to_string(), true);
+                }
+            }
+            Some(Action::Fix) => {
+                // Use an explicit desired state, not an implicit toggle, so a
+                // mixed selection is reliably locked together or released.
+                let desired = !all_locked;
+                if let Err(error) = self.cad.run("sketch.constraint.fix",
+                    json!({"entities":selections,"fixed":desired}))
+                {
+                    self.cad.set_status(error.to_string(), true);
+                }
+            }
+            Some(Action::Move) => {
+                self.cad.start("sketch.move");
+            }
+            None => {}
+        }
+    }
 }
 
 impl eframe::App for MatePadApp {
@@ -198,6 +285,7 @@ impl eframe::App for MatePadApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.cad.ui(ui);
+        self.sketch_touch_toolbar(ui.ctx());
 
         // Large, explicit plane targets: a finger shouldn't have to hit the
         // tiny 3D origin squares to start sketching. The original plane/face
