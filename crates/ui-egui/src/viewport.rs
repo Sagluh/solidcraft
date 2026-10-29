@@ -2071,6 +2071,14 @@ fn pick_hits(app: &SolveApp, proj: &Proj, pos: Pos2, other_sketch_points: bool, 
     let bounds = body_bounds(app, &st);
     let mut hits = Vec::new();
     let (o, d) = proj.ray(pos);
+    // Finger picking needs a larger hit target than a mouse cursor, but CAD
+    // creation tools keep precise narrow snap targets. Android-only.
+    let sketch_touch_pick = cfg!(target_os = "android")
+        && s.active_sketch.is_some()
+        && app.tool.is_none()
+        && app.dialog.is_none();
+    let sketch_point_radius = if sketch_touch_pick { 14.0 } else { 8.0 };
+    let sketch_curve_radius = if sketch_touch_pick { 12.0 } else { 6.0 };
     // MID is an idle sketch selection target. Tools and dialogs keep their existing picks.
     // Put it before a materialized helper point so later constraints still refer to the edge.
     if include_midpoints
@@ -2087,7 +2095,7 @@ fn pick_hits(app: &SolveApp, proj: &Proj, pos: Pos2, other_sketch_points: bool, 
                 && let Some(screen) = proj.to_screen(ss.plane.to_world(at))
             {
                 let distance = screen.distance(pos);
-                if distance < 8.0 {
+                if distance < sketch_point_radius {
                     mids.offer(distance, Hit::SketchMidpoint { sketch: ss.feature, id: curve.id.clone(), at });
                 }
             }
@@ -2121,7 +2129,7 @@ fn pick_hits(app: &SolveApp, proj: &Proj, pos: Pos2, other_sketch_points: bool, 
                 // On a distance tie, grab a movable point before the origin or a linked point.
                 let rank = (dd, prefer_free && locked);
                 let woken = app.viewport.woken_centre.as_ref().is_some_and(|(k, id)| *k == sid && *id == p.id);
-                if dd < 8.0 && best.wants(rank) {
+                if dd < sketch_point_radius && best.wants(rank) {
                     best.offer(rank, Hit::SketchPoint { sketch: sid, id: p.id.clone(), at: p.pos });
                 } else if woken && dd < WOKEN_CENTRE_PX && woken_far.as_ref().is_none_or(|(d0, _)| dd < *d0) {
                     woken_far = Some((dd, Hit::SketchPoint { sketch: sid, id: p.id.clone(), at: p.pos }));
@@ -2133,7 +2141,7 @@ fn pick_hits(app: &SolveApp, proj: &Proj, pos: Pos2, other_sketch_points: bool, 
         if let Some(sp) = proj.to_screen(point) {
             let dd = sp.distance(pos);
             let rank = (dd, prefer_free);
-            if dd < 8.0 && best.wants(rank) {
+            if dd < sketch_point_radius && best.wants(rank) {
                 best.offer(rank, Hit::ConstructionPoint { name });
             }
         }
@@ -2160,7 +2168,7 @@ fn pick_hits(app: &SolveApp, proj: &Proj, pos: Pos2, other_sketch_points: bool, 
                 let pts: Vec<Pos2> = part.iter().filter_map(|q| proj.to_screen(*q)).collect();
                 for w in pts.windows(2) {
                     let dd = seg_dist(pos, w[0], w[1]) - bonus + helper;
-                    if dd < 6.0 && bestc.wants((tier, dd)) {
+                    if dd < sketch_curve_radius && bestc.wants((tier, dd)) {
                         bestc.offer((tier, dd), Hit::SketchCurve { sketch: sid, id: c.id.clone(), straight });
                     }
                 }
@@ -2173,7 +2181,7 @@ fn pick_hits(app: &SolveApp, proj: &Proj, pos: Pos2, other_sketch_points: bool, 
             let pts: Vec<Pos2> = w.pts.iter().filter_map(|q| proj.to_screen(*q)).collect();
             for seg in pts.windows(2) {
                 let dd = seg_dist(pos, seg[0], seg[1]) - bonus;
-                if dd < 6.0 && bestc.wants((tier, dd)) {
+                if dd < sketch_curve_radius && bestc.wants((tier, dd)) {
                     bestc.offer((tier, dd), Hit::SketchCurve { sketch: sid, id: w.id.clone(), straight });
                 }
             }
