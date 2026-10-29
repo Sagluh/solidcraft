@@ -585,7 +585,15 @@ fn boxes(app: &SolveApp, ui: &mut egui::Ui, proj: &Proj, t: &mut Tool) -> Option
     let nothing = ui.ctx().memory(|m| m.focused().is_none());
     // A touch keypad is an egui button, not a TextEdit: it doesn't retain
     // editor keyboard focus. Treat its explicit OK exactly as Enter.
-    (confirmed || (enter && (any_focused || nothing))).then_some(e)
+    // The keypad is drawn after the dimension's preview endpoint was
+    // calculated. Pressing Done may change Length or Angle in this very
+    // frame, so compute the placement again with the newly locked value.
+    // Returning the old e would silently commit the pre-edit geometry.
+    if confirmed || (enter && (any_focused || nothing)) {
+        Some(shown(app, t, t.hover.as_ref()?))
+    } else {
+        None
+    }
 }
 
 /// About the size of a value box, for keeping it in view.
