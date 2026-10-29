@@ -3899,7 +3899,15 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
             && app.tool.is_some()
         {
             crate::tools::on_hover(app, &proj, p, mods.shift);
-            crate::tools::on_click(app, &proj, p, mods.shift);
+            // On MatePad the stylus release freezes the preview, leaving the
+            // numeric keypad open. Only its explicit Done action commits a
+            // dimensioned segment. This also supports dragging the next
+            // segment from the previous segment's endpoint.
+            if !(cfg!(target_os = "android")
+                && app.tool.as_ref().is_some_and(|t| t.cmd == "sketch.line" && t.pts.len() == 1))
+            {
+                crate::tools::on_click(app, &proj, p, mods.shift);
+            }
         }
     }
     // A two-point shape being dragged out (#1630) follows the pointer and ends where it is let go,
@@ -3921,7 +3929,14 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui) {
                     crate::sketch_dims::reset(t);
                 }
                 crate::tools::on_hover(app, &proj, p, mods.shift);
-                crate::tools::on_click(app, &proj, p, mods.shift);
+                // For Android line input, lifting the stylus is not
+                // confirmation: retain the segment preview so the user can
+                // type its exact length into the floating keypad.
+                if !(cfg!(target_os = "android")
+                    && app.tool.as_ref().is_some_and(|t| t.cmd == "sketch.line" && t.pts.len() == 1))
+                {
+                    crate::tools::on_click(app, &proj, p, mods.shift);
+                }
             }
         } else if let Some(p) = at {
             crate::tools::on_hover(app, &proj, p, mods.shift);
