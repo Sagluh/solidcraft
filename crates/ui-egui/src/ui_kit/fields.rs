@@ -227,6 +227,21 @@ fn editor(ui: &mut Ui, value: &mut String, hint: &str, completion: bool) -> (boo
 
 /// `editor` whose text stops `reserve` points short of its right edge, for controls drawn there.
 fn editor_reserving(ui: &mut Ui, value: &mut String, hint: &str, completion: bool, reserve: f32) -> (bool, bool, Response) {
+    // On the MatePad, expression fields use an in-app floating keypad rather
+    // than opening the full-screen Android system keyboard. Plain text fields
+    // (names, paths etc.) still use their normal platform keyboard.
+    #[cfg(target_os = "android")]
+    if completion {
+        let t = Tokens::get();
+        let id = ui.id().with(("android_value", label(ui)));
+        let (response, accepted) = crate::android_numeric::value_field(
+            ui, value, hint, vec2(dimension(ui.available_width()), row_height()),
+            Some(id),
+        );
+        t.input_bevel(ui, &response);
+        super::layout::publish_geometry(ui, &response);
+        return (accepted, response.changed(), response);
+    }
     let t = Tokens::get();
     let width = dimension(ui.available_width());
     let font = egui::FontId::monospace(t.font_label);
@@ -640,6 +655,18 @@ fn length_drag<'a>(value: &'a mut f64, units: &str, decimals: u8) -> egui::DragV
 /// With `keep_tab` Tab stays with the field (the caller acts on it) instead of moving the
 /// keyboard to the next widget.
 pub(crate) fn canvas_value_field(ui: &mut Ui, id: egui::Id, value: &mut String, keep_tab: bool) -> Response {
+    #[cfg(target_os = "android")]
+    {
+        let t = Tokens::get();
+        let (response, _) = crate::android_numeric::value_field(
+            ui, value, "Размер", vec2(t.space_24 * 3.0, row_height()), Some(id),
+        );
+        t.input_bevel(ui, &response);
+        return response;
+    }
+    #[cfg(not(target_os = "android"))]
+    let t = Tokens::get();
+    #[cfg(target_os = "android")]
     let t = Tokens::get();
     let mut edit = egui::TextEdit::singleline(value).id(id).desired_width(t.space_24 * 3.0).background_color(t.input_fill());
     if keep_tab {
@@ -655,6 +682,16 @@ pub(crate) fn canvas_value_field(ui: &mut Ui, id: egui::Id, value: &mut String, 
 /// Placement editor whose owner routes Enter and Tab (including rejected expressions).
 /// Completion remains with the caller. Tokens: cell_editor tokens.
 pub(crate) fn placement_field(ui: &mut Ui, id: egui::Id, value: &mut String, hint: &str) -> Response {
+    #[cfg(target_os = "android")]
+    {
+        let t = Tokens::get();
+        let (response, _) = crate::android_numeric::value_field(
+            ui, value, hint, vec2(t.control_height * 3.0 - t.space_6, row_height()),
+            Some(id),
+        );
+        t.input_bevel(ui, &response);
+        return response;
+    }
     let t = Tokens::get();
     let font = egui::FontId::proportional(t.font_body);
     // Canvas editors must retain their native hit target: enlarging it intercepts nearby

@@ -6,7 +6,7 @@
 //! This module is Android-only and does not change the desktop input pipeline.
 #![cfg(target_os = "android")]
 
-use egui::{Align2, Button, Context, Id, Order, Pos2, Rect, Response, RichText, Ui, Vec2, pos2, vec2};
+use egui::{Button, Context, Id, Order, Pos2, Rect, Response, RichText, Ui, Vec2, pos2};
 
 #[derive(Clone)]
 struct Active {
@@ -170,9 +170,7 @@ pub(crate) fn value_field(
 ) -> (Response, bool) {
     let ctx = ui.ctx().clone();
     let current = ctx.data(|data| data.get_temp::<Active>(pad_id()));
-    let native = current.as_ref().is_some_and(|state| state.system_keyboard && explicit_id == Some(state.target));
-    if native {
-        let state = current.expect("state exists if native");
+    if let Some(state) = current.as_ref().filter(|state| state.system_keyboard && explicit_id == Some(state.target)) {
         let editor = egui::TextEdit::singleline(value)
             .id(state.target)
             .desired_width(size.x)
@@ -212,9 +210,9 @@ pub(crate) fn value_field(
             system_keyboard: false,
             request_native_focus: false,
         });
-        ctx.data_mut(|data| {
-            data.insert_temp(pad_id(), state.clone().expect("just created a pad"))
-        });
+        if let Some(active) = state.as_ref() {
+            ctx.data_mut(|data| data.insert_temp(pad_id(), active.clone()));
+        }
         // Buttons do not start an IME session.
         ctx.memory_mut(|memory| memory.surrender_focus(target));
     }

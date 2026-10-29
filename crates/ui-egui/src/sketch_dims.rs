@@ -571,6 +571,8 @@ fn boxes(app: &SolveApp, ui: &mut egui::Ui, proj: &Proj, t: &mut Tool) -> Option
         ui.ctx().memory_mut(|memory| memory.request_focus(id));
     }
     let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+    #[cfg(target_os = "android")]
+    let enter = enter || crate::android_numeric::take_confirm(ui.ctx());
     let nothing = ui.ctx().memory(|m| m.focused().is_none());
     (enter && (any_focused || nothing)).then_some(e)
 }

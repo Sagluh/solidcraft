@@ -9,6 +9,8 @@
 #![forbid(unsafe_code)]
 use crate::ui_kit::{Container, Surface};
 
+#[cfg(target_os = "android")]
+pub mod android_numeric;
 pub mod access;
 pub mod agent_chat;
 pub mod agent_cursor;
