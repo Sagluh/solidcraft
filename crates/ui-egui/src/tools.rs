@@ -1049,10 +1049,15 @@ pub fn preview(app: &SolveApp, t: &Tool, painter: &egui::Painter, proj: &Proj) {
         if snap.as_deref() == Some("Midpoint") && t.kind == Kind::HorizontalVertical {
             painter.circle_stroke(sp, 8.0, Stroke::new(2.0, tk.accent));
         }
+        let coordinates = format!("{}, {}", crate::prefs::show_mm(app, hp.x, 1), crate::prefs::show_mm(app, hp.y, 1));
+        // Screen-only translation: keep CAD document units and calculations
+        // in their canonical form, but show "мм" next to the stylus/finger.
+        #[cfg(target_os = "android")]
+        let coordinates = if app.preferences.language == "ru" { coordinates.replace(" mm", " мм") } else { coordinates };
         painter.text(
             sp + egui::vec2(10.0, 10.0),
             egui::Align2::LEFT_TOP,
-            format!("{}, {}", crate::prefs::show_mm(app, hp.x, 1), crate::prefs::show_mm(app, hp.y, 1)),
+            coordinates,
             egui::FontId::proportional(crate::theme::Tokens::get().font_small),
             tk.text_dim,
         );

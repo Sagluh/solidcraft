@@ -82,7 +82,11 @@ jobs:
         run: |
           set -euo pipefail
           cd apps/solidcraft-android
-          cargo apk2 build --target aarch64-linux-android
+          # Keep native debug-mode behaviour but omit bulky Rust DWARF and
+          # nonessential symbols. This does NOT change optimisation or CAD
+          # algorithms and still produces the same installable signed APK.
+          CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_DEV_STRIP=symbols \
+            cargo apk2 build --target aarch64-linux-android
 
       - name: Collect installable APK only
         shell: bash

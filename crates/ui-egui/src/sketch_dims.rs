@@ -293,6 +293,9 @@ fn live(app: &SolveApp, t: &Tool, e: Vec2, px: f64) -> Vec<(f64, Vec2)> {
 
 fn fmt(app: &SolveApp, label: &str, kind: ValueKind, v: f64) -> String {
     match kind {
+        // The expression parser accepts the degree sign, so the Russian
+        // Android editor can show a familiar unit without altering geometry.
+        ValueKind::Angle if cfg!(target_os = "android") && app.preferences.language == "ru" => format!("{:.1}°", v.to_degrees()),
         ValueKind::Angle => format!("{:.1} deg", v.to_degrees()),
         // A count rounds to a whole number; a ratio keeps its decimals (0.5, not 1).
         ValueKind::Unitless if label == "Rho" => {
@@ -433,8 +436,29 @@ pub fn show(app: &mut SolveApp, ui: &mut egui::Ui, proj: &Proj) {
     }
     let Some(mut t) = app.tool.take() else { return };
     sync(&mut t);
-    let place = if t.dims.is_empty() { None } else { boxes(app, ui, proj, &mut t) };
+    let has_dimensions = !t.dims.is_empty();
+    let place = if has_dimensions { boxes(app, ui, proj, &mut t) } else { None };
     app.tool = Some(t);
+
+    // A touch user has no Escape key. Provide an accessible, floating Cancel
+    // button for the current sketch dimension/shape input. This invokes the
+    // same cancellation semantics as Esc (clear current points, or exit tool).
+    #[cfg(target_os = "android")]
+    if has_dimensions {
+        let cancel = egui::Area::new(egui::Id::new("matepad_cancel_inline_dimension"))
+            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(-205.0, -106.0))
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                ui.add_sized(
+                    [144.0, 48.0],
+                    egui::Button::new(app.tr("ui.cancel")),
+                ).clicked()
+            }).inner;
+        if cancel {
+            crate::tools::finish(app);
+            return;
+        }
+    }
     if let Some(p) = place {
         crate::tools::place(app, (p, None));
     }
@@ -496,7 +520,25 @@ fn boxes(app: &SolveApp, ui: &mut egui::Ui, proj: &Proj, t: &mut Tool) -> Option
             |ui| {
                 let fill = if b.locked { tk.accent_soft } else { tk.panel };
                 Container::popup_frame(ui.style()).fill(fill).inner_margin(egui::Margin::symmetric(tk.space_3 as i8, 1)).show(ui, |ui| {
-                    let r = crate::ui_kit::placement_field(ui, id, &mut b.value, b.label);
+                    // Localize the hint only. Dimension identifiers and
+                    // serialized expression keys must remain canonical.
+                    let hint = if cfg!(target_os = "android") && app.preferences.language == "ru" {
+                        match b.label {
+                            "Angle" => "Угол (°)",
+                            "Sweep" => "Угол дуги (°)",
+                            "Length" => "Длина",
+                            "Width" => "Ширина",
+                            "Height" => "Высота",
+                            "Radius" => "Радиус",
+                            "Diameter" => "Диаметр",
+                            "Sides" => "Количество сторон",
+                            "Rho" => "Коэффициент",
+                            _ => b.label,
+                        }
+                    } else {
+                        b.label
+                    };
+                    let r = crate::ui_kit::placement_field(ui, id, &mut b.value, hint);
                     // A completion gets first use of forward Tab. Shift+Tab always moves back;
                     // the box reached by egui's generic traversal must not complete its text.
                     let changed =
