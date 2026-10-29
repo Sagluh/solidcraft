@@ -5,7 +5,7 @@ mod android_files;
 
 use android_files::AndroidFiles;
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use eframe::egui;
 use solidcraft_engine::{Sel, Session};
 use solidcraft_engine::geom::Vec3;
@@ -22,13 +22,37 @@ enum TwoFingerMode {
     Pan,
 }
 
+/// Per-document autosave progress. Count undoable *committed changes*, not
+/// camera movements or every frame of an in-progress sketch drag. Document uid
+/// stays stable across tabs; the same tab position may host another design.
+#[derive(Clone, Copy)]
+struct AutosaveSteps {
+    last_revision: u64,
+    last_undo_len: usize,
+    last_undo_tail: Option<usize>,
+    pending: u8,
+    last_checkpoint: Instant,
+}
+
+impl AutosaveSteps {
+    fn from_session(session: &Session) -> Self {
+        Self {
+            last_revision: session.revision,
+            last_undo_len: session.undo.len(),
+            last_undo_tail: session.undo.last().map(|x| std::sync::Arc::as_ptr(&x.doc) as usize),
+            pending: 0,
+            last_checkpoint: Instant::now(),
+        }
+    }
+}
+
 struct MatePadApp {
     cad: SolveApp,
     touch: TouchNavigation,
     files: AndroidFiles,
     two_finger_mode: TwoFingerMode,
-    /// Per-document count of committed model changes since the last checkpoint.
-    autosave_steps: HashMap<usize, (u64, u8)>,
+    /// Separate counters for open designs, even when users switch tabs.
+    autosave_steps: HashMap<u64, AutosaveSteps>,
 }
 
 /// The Android touch driver emulates the primary mouse button for a finger.
@@ -226,37 +250,64 @@ impl MatePadApp {
             });
     }
 
-    /// The five-step checkpoint uses committed document revisions, not
-    /// touchscreen gestures or redraws. Changes may be reported in batches
-    /// (several commands between frames), so count up to five at once.
-    /// The 3-minute cadence is handled independently by recovery_ui::tick.
+    /// Trigger an atomic native .solidcraft recovery checkpoint after five
+    /// completed CAD editing commands. A screen redraw, pinch, camera orbit or
+    /// a live drag frame must not count as a separate modelling step.
+    ///
+    /// The independent three-minute cadence is handled by recovery_ui::tick,
+    /// including open background tabs. Both triggers use the same crash-safe
+    /// writer and only save documents with unsaved changes.
     fn count_autosave_steps(&mut self) {
         if self.cad.autosave.is_none() {
             return;
         }
-        let tab = self.cad.docs.active;
-        let revision = self.cad.session.revision;
-        let dirty = self.cad.session.is_dirty();
-        let entry = self.autosave_steps.entry(tab).or_insert((revision, 0));
-        if !dirty {
-            *entry = (revision, 0);
+        let session = &self.cad.session;
+        let now = Instant::now();
+        let item = self.autosave_steps.entry(session.uid)
+            .or_insert_with(|| AutosaveSteps::from_session(session));
+        let undo_len = session.undo.len();
+        let undo_tail = session.undo.last()
+            .map(|x| std::sync::Arc::as_ptr(&x.doc) as usize);
+
+        if !session.is_dirty() {
+            // A successful manual save is already durable. Start the next
+            // five-step window from that save, without writing redundant data.
+            *item = AutosaveSteps::from_session(session);
             return;
         }
-        if revision < entry.0 {
-            // An unrelated document reused a tab position.
-            *entry = (revision, 0);
-            return;
+        if now.duration_since(item.last_checkpoint) >= Duration::from_secs(180) {
+            // The shared recovery engine performs the timed checkpoint on its
+            // next tick. Reset this counter to keep "5 steps OR 3 minutes".
+            item.pending = 0;
+            item.last_checkpoint = now;
         }
-        let delta = revision.saturating_sub(entry.0).min(5) as u8;
-        if delta == 0 {
-            return;
-        }
-        entry.0 = revision;
-        entry.1 = entry.1.saturating_add(delta);
-        if entry.1 >= 5 {
-            entry.1 = 0;
-            // The shared recovery engine schedules a non-blocking atomic
-            // snapshot on its next tick, retaining all undo/redo history.
+
+        // The undo stack records completed editing operations. Live mouse
+        // movement may advance session.revision many times, but without a new
+        // undo step it is not another completed modelling action.
+        let changed = session.revision != item.last_revision;
+        let steps = if !changed {
+            0
+        } else if undo_len > item.last_undo_len {
+            (undo_len - item.last_undo_len).min(5) as u8
+        } else if undo_len < item.last_undo_len || undo_tail != item.last_undo_tail {
+            // Undo / redo also change the saved design. When the undo history
+            // reaches its cap of 200 entries, its length stays unchanged but
+            // the last snapshot changes on each additional edit.
+            1
+        } else {
+            0
+        };
+
+        item.last_revision = session.revision;
+        item.last_undo_len = undo_len;
+        item.last_undo_tail = undo_tail;
+        item.pending = item.pending.saturating_add(steps);
+        if item.pending >= 5 {
+            item.pending = 0;
+            item.last_checkpoint = now;
+            // Mark an early autosave due. recovery_ui::tick (called in
+            // cad.logic) writes on a worker thread without freezing the CAD UI.
             self.cad.big_operation = true;
         }
     }
