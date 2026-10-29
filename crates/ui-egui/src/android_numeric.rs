@@ -241,8 +241,14 @@ pub(crate) fn value_field(
         if let Some(action) = draw_pad(&ctx, &active) {
             match action {
                 Key::Accept => {
-                    if *value != active.draft {
-                        *value = active.draft;
+                    // Until the first key is pressed the pad shows a snapshot of
+                    // the live dimension from when it opened. A stylus may have
+                    // moved the endpoint since then: accept the CURRENT measured
+                    // length instead of reverting it to the opening snapshot.
+                    // Once the user types, their expression always takes priority.
+                    let confirmed = if active.replace { value.clone() } else { active.draft };
+                    if *value != confirmed {
+                        *value = confirmed;
                         response.mark_changed();
                     }
                     accept = true;
