@@ -453,6 +453,19 @@ pub fn refine_snap(
             }
         }
     }
+    // Android: when drawing the third side of a rectangle, align precisely
+    // with the x/y coordinate of an earlier corner and show an extension
+    // guide. Give this priority over plain horizontal/vertical grid rounding.
+    // Desktop cursor and keyboard behaviour is intentionally unchanged.
+    #[cfg(target_os = "android")]
+    if !mid_only
+        && best.is_none()
+        && line_tool
+        && let Some(prev) = prev
+        && let Some(i) = crate::inference::corner_alignment(sk, prev, lp, tol * 1.3)
+    {
+        best = Some((i.dist, i.label(), i.at));
+    }
     if !mid_only
         && best.is_none()
         && let Some(prev) = prev
