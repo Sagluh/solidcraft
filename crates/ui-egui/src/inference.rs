@@ -19,6 +19,8 @@ use crate::viewport::Proj;
 pub enum Kind {
     Parallel,
     Perpendicular,
+    /// Sketch alignment to an existing corner, used on Android only.
+    CornerAlignment,
     Extension,
     Tangent,
     /// The new line passes through the centre of a circle or arc.
@@ -44,6 +46,7 @@ impl Inference {
         match self.kind {
             Kind::Parallel => "//",
             Kind::Perpendicular => "\u{22a5}",
+            Kind::CornerAlignment => "+",
             Kind::Extension => "Ext",
             Kind::Tangent => "T",
             Kind::Center => "Ctr",
@@ -213,11 +216,49 @@ pub fn lines(sk: &Sketch, prev: Vec2, lp: Vec2, tol: f64) -> Option<Inference> {
     keep(best)
 }
 
+/// Touch-friendly rectangle corner inference: snap an endpoint to the x or
+/// y coordinate of an existing line endpoint while staying aligned with the
+/// previous point. The guide marks this as a visual placement aid; the usual
+/// horizontal/vertical inference constrains the resulting geometry.
+pub fn corner_alignment(sk: &Sketch, prev: Vec2, lp: Vec2, tol: f64) -> Option<Inference> {
+    let mut best: Option<Inference> = None;
+    for (i, c) in sk.curves.iter().enumerate() {
+        let Some((a, b)) = line_ends(sk, i) else { continue };
+        for reference in [a, b] {
+            if (reference.x - prev.x).abs() < 2.0 * tol
+                || (reference.y - prev.y).abs() < 2.0 * tol
+            {
+                continue;
+            }
+            for at in [Vec2::new(reference.x, prev.y), Vec2::new(prev.x, reference.y)] {
+                let d = at.dist(lp);
+                if d > tol || prev.dist(at) < 2.0 * tol {
+                    continue;
+                }
+                if best.as_ref().is_none_or(|old| d < old.dist) {
+                    best = Some(Inference {
+                        kind: Kind::CornerAlignment,
+                        curve: c.id.clone(),
+                        at,
+                        dist: d,
+                        guide: (reference, at),
+                        arg: None,
+                    });
+                }
+            }
+        }
+    }
+    keep(best)
+}
+
 /// The Line tool placed a segment ending at `end` (the new line `line`): add the constraint of
 /// the inference it was snapped by.
 pub fn commit(app: &mut SolveApp, line: &str, end: Vec2) {
     let Some(i) = current().filter(|i| i.at.dist(end) < 1e-9) else { return };
     clear();
+    if matches!(i.kind, Kind::CornerAlignment) {
+        return; // A preview alignment, not a persistent extra constraint.
+    }
     // The endpoint is the circle's centre: the line already ends on that point.
     if matches!(i.kind, Kind::Center) && i.arg.as_deref().is_some_and(|a| a.ends_with(".center")) {
         return;
@@ -225,6 +266,7 @@ pub fn commit(app: &mut SolveApp, line: &str, end: Vec2) {
     let (cmd, mut params) = match i.kind {
         Kind::Parallel => ("sketch.constraint.parallel", json!({"a": i.curve, "b": line})),
         Kind::Perpendicular => ("sketch.constraint.perpendicular", json!({"a": i.curve, "b": line})),
+        Kind::CornerAlignment => return,
         Kind::Tangent => ("sketch.constraint.tangent", json!({"a": i.curve, "b": line})),
         Kind::Extension => ("sketch.constraint.coincident", json!({"a": format!("{line}.end"), "b": i.curve})),
         Kind::Center => ("sketch.constraint.coincident", json!({"a": format!("{}.center", i.curve), "b": line})),
@@ -270,6 +312,18 @@ mod tests {
         let i = lines(&s, Vec2::new(0.0, 20.0), Vec2::new(10.1, 10.0), 0.5).expect("perpendicular");
         assert_eq!(i.kind, Kind::Perpendicular);
         assert!(lines(&s, Vec2::new(0.0, 20.0), Vec2::new(10.0, 25.0), 0.5).is_none());
+    }
+
+    #[test]
+    fn rectangle_corner_snaps_to_projected_opposite_endpoint() {
+        let mut s = Sketch::new();
+        s.add_line(Vec2::new(0.0, 0.0), Vec2::new(30.0, 0.0), None, None, Some("bottom")).unwrap();
+        s.add_line(Vec2::new(30.0, 0.0), Vec2::new(30.0, 20.0), None, None, Some("right")).unwrap();
+        let corner = corner_alignment(&s, Vec2::new(30.0, 20.0), Vec2::new(0.3, 20.2), 0.6).unwrap();
+        assert_eq!(corner.kind, Kind::CornerAlignment);
+        assert!(corner.at.dist(Vec2::new(0.0, 20.0)) < 1e-9);
+        assert!(corner.guide.0.dist(Vec2::ZERO) < 1e-9);
+        assert!(corner_alignment(&s, Vec2::new(30.0, 20.0), Vec2::new(3.0, 16.0), 0.6).is_none());
     }
 
     #[test]
