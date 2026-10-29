@@ -8,19 +8,9 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use eframe::egui;
 use solidcraft_engine::{Sel, Session};
-use solidcraft_engine::geom::Vec3;
 use serde_json::json;
 use solidcraft_ui_egui::SolveApp;
 use solidcraft_ui_egui::viewport::NavMode;
-
-/// Translation with two fingers either orbits the model freely around the
-/// view's X/Y axes or pans it. Pinch always zooms. Finger twist rolls around Z.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum TwoFingerMode {
-    #[default]
-    Rotate3D,
-    Pan,
-}
 
 /// Per-document autosave progress. Count undoable *committed changes*, not
 /// camera movements or every frame of an in-progress sketch drag. Document uid
@@ -50,7 +40,6 @@ struct MatePadApp {
     cad: SolveApp,
     touch: TouchNavigation,
     files: AndroidFiles,
-    two_finger_mode: TwoFingerMode,
     /// Separate counters for open designs, even when users switch tabs.
     autosave_steps: HashMap<u64, AutosaveSteps>,
 }
@@ -207,47 +196,7 @@ impl MatePadApp {
             // The Android window has no depth attachment; CAD scene depth is offscreen.
             cad.set_wgpu_split(render_state, 24, 0, 1);
         }
-        Self { cad, touch: TouchNavigation::default(), files, autosave_steps: HashMap::new(), two_finger_mode: TwoFingerMode::default() }
-    }
-
-    /// A small toggle above the viewport navigation bar: two fingers can
-    /// rotate all three axes or perform the previous two-finger translation.
-    /// Zoom by pinching works in either mode; regular CAD taps are unchanged.
-    fn two_finger_mode_button(&mut self, ctx: &egui::Context) {
-        if self.cad.session.active_sketch.is_some() {
-            return; // Keep the 2D sketch plane stable and use two fingers for pan/zoom.
-        }
-        egui::Area::new(egui::Id::new("matepad_two_finger_camera_mode"))
-            .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -101.0))
-            .order(egui::Order::Foreground)
-            .show(ctx, |ui| {
-                egui::Frame::default()
-                    .fill(egui::Color32::from_rgb(29, 38, 51))
-                    .inner_margin(egui::Margin::symmetric(8, 5))
-                    .corner_radius(9.0)
-                    .show(ui, |ui| {
-                        let (label, hint) = match self.two_finger_mode {
-                            TwoFingerMode::Rotate3D => (
-                                "2 пальца: Вращение 3D ↻",
-                                "Двигайте два пальца для поворота по X/Y, закручивайте их для вращения вокруг оси взгляда. Щипок — масштаб.",
-                            ),
-                            TwoFingerMode::Pan => (
-                                "2 пальца: Перемещение ↔",
-                                "Два пальца перемещают модель по экрану. Щипок — масштаб. Нажмите для перехода к свободному вращению.",
-                            ),
-                        };
-                        if ui.add_sized([235.0, 36.0], egui::Button::new(label))
-                            .on_hover_text(hint)
-                            .clicked()
-                            && !self.touch.multi_touch_active
-                        {
-                            self.two_finger_mode = match self.two_finger_mode {
-                                TwoFingerMode::Rotate3D => TwoFingerMode::Pan,
-                                TwoFingerMode::Pan => TwoFingerMode::Rotate3D,
-                            };
-                        }
-                    });
-            });
+        Self { cad, touch: TouchNavigation::default(), files, autosave_steps: HashMap::new() }
     }
 
     /// Trigger an atomic native .solidcraft recovery checkpoint after five
@@ -412,50 +361,24 @@ impl MatePadApp {
 
 impl eframe::App for MatePadApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Android provides Touch events for both fingers. Unlike desktop
-        // mouse input, these are not forwarded as scroll/zoom wheel events.
-        // With two fingers on the CAD viewport:
-        // * pinch       -> zoom (both modes)
-        // * translate   -> free 3D orbit (default) or pan (user-selected)
-        // * finger twist-> roll around the viewing direction (3rd rotation axis)
-        // Free rotation uses Camera::rotate_in_view, which preserves orientation
-        // across the poles; yaw/pitch Camera::orbit would clamp there.
-        //
-        // Android's synthetic primary-mouse events were already removed in
-        // TouchNavigation::input, so these gestures cannot select model faces.
+        // Restored MatePad gestures: two fingers pinch to zoom or move
+        // together to pan. Free three-axis rotation and its mode button have
+        // been removed at the user's request; one-finger orbit remains.
         if let Some(gesture) = ctx.input(|input| input.multi_touch())
             && self.cad.touch_hits_model_viewport(gesture.center_pos)
         {
             let zoom = (gesture.zoom_delta as f64).clamp(0.6, 1.7);
-            let pinch = zoom.is_finite() && (zoom - 1.0).abs() > 0.0001;
-            let delta = gesture.translation_delta;
-            let translation = delta.is_finite() && delta != egui::Vec2::ZERO;
-            let twist = f64::from(gesture.rotation_delta);
-            let twisting = twist.is_finite() && twist.abs() > 0.0001;
-            let free_orbit = self.two_finger_mode == TwoFingerMode::Rotate3D
-                && self.cad.session.active_sketch.is_none();
-            if pinch || translation || (twisting && free_orbit) {
+            if zoom.is_finite() && (zoom - 1.0).abs() > 0.0001 {
                 self.cad.cancel_view_animation();
-                self.cad.viewport.orbit_free = None;
-                self.cad.viewport.orbit_from = None;
-                self.cad.viewport.spin = false;
-                if pinch {
-                    self.cad.cam.zoom_at(1.0 / zoom, None);
-                }
-                if free_orbit {
-                    // Screen-space trackball: vertical movement rotates around
-                    // camera-right, horizontal around camera-up, and a two-
-                    // finger twist around camera-back. Clamp outlier frame
-                    // deltas to avoid a jump at touch pointer acquisition.
-                    let dx = f64::from(delta.x).clamp(-100.0, 100.0);
-                    let dy = f64::from(delta.y).clamp(-100.0, 100.0);
-                    let roll = if twisting { twist.clamp(-0.35, 0.35) } else { 0.0 };
-                    self.cad.cam.rotate_in_view(Vec3::new(-dy * 0.008, -dx * 0.008, -roll));
-                } else if translation {
-                    // Preserve existing two-finger pan and 2D sketch navigation.
-                    let height = self.cad.viewport.rect.map_or(600.0, |rect| rect.height().max(1.0));
-                    self.cad.cam.pan(delta.x as f64, delta.y as f64, height as f64);
-                }
+                self.cad.cam.zoom_at(1.0 / zoom, None);
+            }
+            let delta = gesture.translation_delta;
+            if delta.is_finite() && delta != egui::Vec2::ZERO {
+                self.cad.cancel_view_animation();
+                let height = self.cad.viewport.rect.map_or(600.0, |rect| rect.height().max(1.0));
+                self.cad.cam.pan(delta.x as f64, delta.y as f64, height as f64);
+            }
+            if (zoom - 1.0).abs() > 0.0001 || delta != egui::Vec2::ZERO {
                 ctx.request_repaint();
             }
         }
@@ -475,7 +398,6 @@ impl eframe::App for MatePadApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.cad.ui(ui);
         self.sketch_touch_toolbar(ui.ctx());
-        self.two_finger_mode_button(ui.ctx());
 
         // Large, explicit plane targets: a finger shouldn't have to hit the
         // tiny 3D origin squares to start sketching. The original plane/face

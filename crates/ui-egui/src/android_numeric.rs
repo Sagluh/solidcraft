@@ -11,7 +11,7 @@ use egui::{Button, Context, Id, Order, Pos2, Rect, Response, RichText, Ui, Vec2,
 #[derive(Clone)]
 struct Active {
     target: Id,
-    field_rect: Rect,
+    initial_pos: Pos2,
     hint: String,
     original: String,
     draft: String,
@@ -78,8 +78,9 @@ fn popup_position(ctx: &Context, field: Rect) -> Pos2 {
 
 fn draw_pad(ctx: &Context, active: &Active) -> Option<Key> {
     let mut action = None;
-    egui::Area::new(Id::new("solidcraft_android_number_keyboard"))
-        .fixed_pos(popup_position(ctx, active.field_rect))
+    egui::Area::new(Id::new("solidcraft_android_number_keyboard").with(active.target))
+        .default_pos(active.initial_pos)
+        .movable(true)
         .order(Order::Foreground)
         .show(ctx, |ui| {
             egui::Frame::popup(ui.style())
@@ -89,7 +90,7 @@ fn draw_pad(ctx: &Context, active: &Active) -> Option<Key> {
                 .show(ui, |ui| {
                     ui.set_min_width(230.0);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(if active.hint.is_empty() { "Значение" } else { &active.hint }).strong());
+                        ui.label(RichText::new(format!("Перетащите · {}", if active.hint.is_empty() { "Значение" } else { &active.hint })).strong());
                         if ui.small_button("✕").clicked() {
                             action = Some(Key::Cancel);
                         }
@@ -99,7 +100,7 @@ fn draw_pad(ctx: &Context, active: &Active) -> Option<Key> {
                     ui.separator();
                     let key_size = [50.0, 40.0];
                     for row in [
-                        [("7", Key::Type("7")), ("8", Key::Type("8")), ("9", Key::Type("9")), ("⌫", Key::Backspace)],
+                        [("7", Key::Type("7")), ("8", Key::Type("8")), ("9", Key::Type("9")), ("Удал", Key::Backspace)],
                         [("4", Key::Type("4")), ("5", Key::Type("5")), ("6", Key::Type("6")), ("C", Key::Clear)],
                         [("1", Key::Type("1")), ("2", Key::Type("2")), ("3", Key::Type("3")), ("±", Key::Sign)],
                         [("0", Key::Type("0")), (".", Key::Type(".")), ("−", Key::Type("-")), ("+", Key::Type("+"))],
@@ -156,6 +157,24 @@ fn apply_key(active: &mut Active, key: Key) {
     }
 }
 
+/// Open a compact numeric pad as soon as the first dimension of a newly
+/// started sketch segment appears. Called once per drawing stage transition,
+/// not on every repaint. The pad's position stays fixed while the line moves.
+pub(crate) fn open_for_sketch(ctx: &Context, id: Id, value: &str, hint: &str, field_rect: Rect) {
+    let initial_pos = popup_position(ctx, field_rect);
+    ctx.data_mut(|data| data.insert_temp(pad_id(), Active {
+        target: id,
+        initial_pos,
+        hint: hint.to_owned(),
+        original: value.to_owned(),
+        draft: value.to_owned(),
+        replace: true,
+        system_keyboard: false,
+        request_native_focus: false,
+    }));
+    ctx.request_repaint();
+}
+
 /// Renders a value box that behaves like a TextEdit to its owner (including
 /// Response::changed), but never gives Android's IME focus unless the user
 /// explicitly taps "Формула ⌨".
@@ -202,7 +221,7 @@ pub(crate) fn value_field(
     if response.clicked() {
         state = Some(Active {
             target,
-            field_rect: response.rect,
+            initial_pos: popup_position(&ctx, response.rect),
             hint: hint.to_owned(),
             original: value.clone(),
             draft: value.clone(),
@@ -219,7 +238,6 @@ pub(crate) fn value_field(
 
     let mut accept = false;
     if let Some(mut active) = state.filter(|state| state.target == target && !state.system_keyboard) {
-        active.field_rect = response.rect;
         if let Some(action) = draw_pad(&ctx, &active) {
             match action {
                 Key::Accept => {

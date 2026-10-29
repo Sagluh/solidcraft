@@ -548,6 +548,13 @@ fn boxes(app: &SolveApp, ui: &mut egui::Ui, proj: &Proj, t: &mut Tool) -> Option
                         b.locked = true;
                     }
                     if focus && i == 0 {
+                        #[cfg(target_os = "android")]
+                        if t.cmd == "sketch.line" {
+                            crate::android_numeric::open_for_sketch(
+                                ui.ctx(), id, &b.value, hint, r.rect,
+                            );
+                        }
+                        #[cfg(not(target_os = "android"))]
                         r.request_focus();
                     }
                     any_focused |= r.has_focus() || r.lost_focus();
