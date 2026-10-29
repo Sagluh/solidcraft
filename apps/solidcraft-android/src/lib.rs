@@ -173,17 +173,17 @@ impl MatePadApp {
             Sel::SketchCurve { id, .. } | Sel::SketchPoint { id } => Some(id.clone()),
             _ => None,
         }).collect();
-        let (all, all_locked) = {
+        // Avoid scanning and allocating all sketch curves every rendered frame.
+        // Large engineering sketches may contain thousands of elements.
+        let all_locked = if selections.is_empty() {
+            false
+        } else {
             let world = self.cad.session.world_state();
             let Some(sketch) = world.sketch(sid).map(|ss| &ss.sketch) else { return };
-            let all = sketch.curves.iter().filter(|c| c.link.is_none())
-                .map(|c| Sel::SketchCurve { id: c.id.clone(), sketch: None })
-                .collect::<Vec<_>>();
-            let all_locked = !selections.is_empty() && selections.iter().all(|id| {
+            selections.iter().all(|id| {
                 sketch.curve_index(id).is_some_and(|i| sketch.curve_locked(i))
                     || sketch.resolve_point(id).is_some_and(|i| sketch.point_locked(i))
-            });
-            (all, all_locked)
+            })
         };
         #[derive(Clone, Copy)]
         enum Action { Select, SelectAll, Fix, Move }
@@ -228,6 +228,11 @@ impl MatePadApp {
                 self.cad.set_status("Режим выбора: коснитесь линии или перетащите её".to_owned(), false);
             }
             Some(Action::SelectAll) => {
+                let world = self.cad.session.world_state();
+                let Some(sketch) = world.sketch(sid).map(|ss| &ss.sketch) else { return };
+                let all: Vec<Sel> = sketch.curves.iter().filter(|c| c.link.is_none())
+                    .map(|c| Sel::SketchCurve { id: c.id.clone(), sketch: None })
+                    .collect();
                 if let Err(error) = self.cad.run("select.set", json!({"items":all,"add":false})) {
                     self.cad.set_status(error.to_string(), true);
                 }
