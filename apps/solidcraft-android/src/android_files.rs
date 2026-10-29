@@ -112,6 +112,34 @@ fn picker(app: AndroidApp, mode: i32, name: String) -> FilePickerFuture {
     Box::pin(Picker { app })
 }
 
+/// Resolve the private app storage folder from NativeActivity rather than
+/// relying on HOME or XDG_DATA_HOME, which Android does not provide.
+/// The engine's recovery system writes atomic .solidcraft checkpoints here.
+pub fn recovery_dir(app: &AndroidApp) -> Result<std::path::PathBuf, String> {
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) };
+    let root = vm.attach_current_thread(|env| -> jni::errors::Result<String> {
+        let ptr = app.activity_as_ptr() as jni::sys::jobject;
+        let activity = unsafe { env.as_cast_raw::<JObject>(&ptr)? };
+        let directory = env.call_method(
+            &*activity,
+            jni_str!("getFilesDir"),
+            jni_sig!("()Ljava/io/File;"),
+            &[],
+        )?.l()?;
+        let path = env.call_method(
+            &directory,
+            jni_str!("getAbsolutePath"),
+            jni_sig!("()Ljava/lang/String;"),
+            &[],
+        )?.l()?;
+        JString::cast_local(env, path)?.try_to_string(env)
+    }).map_err(|e| format!("Android autosave directory: {e}"))?;
+    if root.is_empty() {
+        return Err("Android returned an empty app storage path".into());
+    }
+    Ok(std::path::PathBuf::from(root).join("solidcraft-recovery"))
+}
+
 // Connect File, Import, Save As and Export commands to Android's SAF.
 // The CAD engine sees local paths while Android mediates external URIs.
 pub fn services(app: &AndroidApp) -> Services {
