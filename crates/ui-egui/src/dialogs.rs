@@ -3000,7 +3000,9 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
     // Keyboard: Enter applies (from a value field, or with nothing focused), Esc cancels.
     let (enter_free, esc) = ctx.input(|i| (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Escape)));
     #[cfg(target_os = "android")]
-    let enter_free = enter_free || crate::android_numeric::take_confirm(ctx);
+    let keypad_confirmed = crate::android_numeric::take_confirm(ctx);
+    #[cfg(not(target_os = "android"))]
+    let keypad_confirmed = false;
     let nothing_focused = ctx.memory(|m| m.focused().is_none());
     let canvas_enter = enter_free && ctx.memory(|m| m.had_focus_last_frame(egui::Id::new("sc_canvas_value")));
     // Tables (configurations, a study's keys) take Enter for their cells.
@@ -3008,7 +3010,7 @@ pub fn show(app: &mut SolveApp, ctx: &egui::Context) {
         && !matches!(&d.kind, Kind::Motion(k) if k.wide())
         && !matches!(&d.kind, Kind::Material { editor, .. } if editor.editing());
     let report_active = app.issue_report.draft.is_some();
-    if !preset_prompt && !report_active && enter_applies && app.applying.is_none() && (enter || canvas_enter || (enter_free && nothing_focused)) {
+    if !preset_prompt && !report_active && enter_applies && app.applying.is_none() && (enter || canvas_enter || keypad_confirmed || (enter_free && nothing_focused)) {
         ok = true;
     }
     if !preset_prompt && !report_active && esc && !app.esc_handled {

@@ -572,9 +572,13 @@ fn boxes(app: &SolveApp, ui: &mut egui::Ui, proj: &Proj, t: &mut Tool) -> Option
     }
     let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
     #[cfg(target_os = "android")]
-    let enter = enter || crate::android_numeric::take_confirm(ui.ctx());
+    let confirmed = crate::android_numeric::take_confirm(ui.ctx());
+    #[cfg(not(target_os = "android"))]
+    let confirmed = false;
     let nothing = ui.ctx().memory(|m| m.focused().is_none());
-    (enter && (any_focused || nothing)).then_some(e)
+    // A touch keypad is an egui button, not a TextEdit: it doesn't retain
+    // editor keyboard focus. Treat its explicit OK exactly as Enter.
+    (confirmed || (enter && (any_focused || nothing))).then_some(e)
 }
 
 /// About the size of a value box, for keeping it in view.
