@@ -376,7 +376,9 @@ pub fn refine_snap(
     // Millimetres per pixel here.
     let (a, b) = (proj.to_screen(plane.to_world(lp))?, proj.to_screen(plane.to_world(lp + Vec2::X))?);
     let px = 1.0 / (a.distance(b) as f64).max(1e-9);
-    let tol = 7.0 * px;
+    // A finger (or stylus) is less precise than a mouse: enlarge the visual
+    // inference radius on Android, while retaining desktop precision.
+    let tol = if cfg!(target_os = "android") { 10.0 * px } else { 7.0 * px };
     // A model vertex under the cursor: drawing on it projects it into the sketch.
     for h in pick(app, proj, a) {
         if let Hit::Vertex { point, .. } = h {
