@@ -1,6 +1,6 @@
 //! Native Android entry point using the actual SolidCraft CAD engine and egui interface.
 //! This shares the same SolveApp frontend as desktop and web. Platform-specific file
-//! services are deliberately disabled until Android storage access is implemented.
+//! services use Android's system document picker for import and export.
 mod android_files;
 
 use android_files::AndroidFiles;
@@ -27,6 +27,9 @@ struct TouchNavigation {
     previous_nav: Option<NavMode>,
     restore_nav: bool,
     defer_pointer_gone: bool,
+    /// True from the second finger's down event until the final finger lifts.
+    /// While set, synthetic mouse events must never select CAD geometry.
+    multi_touch_active: bool,
 }
 
 impl TouchNavigation {
@@ -46,6 +49,8 @@ impl TouchNavigation {
         }
 
         let mut release_touch = false;
+        let was_multi_touch = self.multi_touch_active;
+        let mut began_multi_touch = false;
         for event in &raw.events {
             if let egui::Event::Touch { id, phase, pos, .. } = event {
                 match phase {
@@ -55,9 +60,17 @@ impl TouchNavigation {
                             self.finger = Some(*id);
                             self.start = cad.touch_hits_model_viewport(*pos).then_some(*pos);
                             self.orbiting = false;
-                        } else if self.orbiting {
-                            cad.viewport.nav = self.previous_nav.take();
-                            self.orbiting = false;
+                        } else if self.count >= 2 && !self.multi_touch_active {
+                            // Android's touch backend also emits mouse events for one
+                            // of the fingers. Disable that emulated mouse for the full
+                            // gesture, even after only one finger remains.
+                            self.multi_touch_active = true;
+                            began_multi_touch = true;
+                            self.restore_nav = false;
+                            if self.orbiting {
+                                cad.viewport.nav = self.previous_nav.take();
+                                self.orbiting = false;
+                            }
                         }
                     }
                     egui::TouchPhase::Move if Some(*id) == self.finger && self.count == 1 => {
@@ -88,9 +101,41 @@ impl TouchNavigation {
                 }
             }
         }
-        if release_touch {
-            // egui-winit emits PointerGone in the same frame as the release.
-            // Keep the last coordinate visible for CAD's release-time pick.
+        if self.multi_touch_active || was_multi_touch {
+            // Keep the real Touch events: egui needs them to calculate pinch
+            // zoom and two-finger translation. Discard the *emulated mouse*
+            // events so the first finger cannot click, box-select or move a
+            // body while both fingers are manipulating the camera.
+            // Importantly this includes the release of the LAST finger.
+            self.defer_pointer_gone = false;
+            raw.events.retain(|event| {
+                !matches!(
+                    event,
+                    egui::Event::PointerMoved(_)
+                        | egui::Event::PointerButton { .. }
+                        | egui::Event::PointerGone
+                )
+            });
+            if began_multi_touch {
+                // The first finger may already have pressed the primary mouse
+                // button in an earlier frame. Release it *outside* the app
+                // so egui cancels the drag without generating a CAD click.
+                let outside = egui::pos2(-10_000.0, -10_000.0);
+                raw.events.insert(0, egui::Event::PointerGone);
+                raw.events.insert(0, egui::Event::PointerButton {
+                    pos: outside,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers: egui::Modifiers::NONE,
+                });
+                raw.events.insert(0, egui::Event::PointerMoved(outside));
+            }
+            if self.count == 0 {
+                self.multi_touch_active = false;
+            }
+        } else if release_touch {
+            // Short one-finger taps must retain their position until the CAD
+            // plane/face selection has handled the release.
             raw.events.retain(|ev| !matches!(ev, egui::Event::PointerGone));
             self.defer_pointer_gone = true;
         }
