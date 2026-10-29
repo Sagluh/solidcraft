@@ -78,9 +78,15 @@ fn popup_position(ctx: &Context, field: Rect) -> Pos2 {
 
 fn draw_pad(ctx: &Context, active: &Active) -> Option<Key> {
     let mut action = None;
+    let position_id = Id::new("solidcraft_android_number_keyboard_position").with(active.target);
+    let current_pos = ctx.data(|data| data.get_temp::<Pos2>(position_id)).unwrap_or(active.initial_pos);
+    let mut header_drag = Vec2::ZERO;
+    // The egui Area itself must NOT be movable: on touchscreens a press on a
+    // digit can otherwise move the whole pad. Only the dedicated title grip
+    // below accepts a drag, independently of every numeric/control button.
     egui::Area::new(Id::new("solidcraft_android_number_keyboard").with(active.target))
-        .default_pos(active.initial_pos)
-        .movable(true)
+        .fixed_pos(current_pos)
+        .movable(false)
         .order(Order::Foreground)
         .show(ctx, |ui| {
             egui::Frame::popup(ui.style())
@@ -90,7 +96,15 @@ fn draw_pad(ctx: &Context, active: &Active) -> Option<Key> {
                 .show(ui, |ui| {
                     ui.set_min_width(230.0);
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(format!("Перетащите · {}", if active.hint.is_empty() { "Значение" } else { &active.hint })).strong());
+                        let grip = ui.add_sized(
+                            [188.0, 34.0],
+                            egui::Label::new(RichText::new(format!(
+                                "⠿  {}", if active.hint.is_empty() { "Переместить окно" } else { &active.hint }
+                            )).strong()).sense(egui::Sense::drag()),
+                        ).on_hover_text("Перемещать окно можно только за эту верхнюю полоску");
+                        if grip.dragged() {
+                            header_drag = grip.drag_delta();
+                        }
                         if ui.small_button("✕").clicked() {
                             action = Some(Key::Cancel);
                         }
@@ -119,6 +133,21 @@ fn draw_pad(ctx: &Context, active: &Active) -> Option<Key> {
                     });
                 });
         });
+    if header_drag != Vec2::ZERO {
+        const WIDTH: f32 = 250.0;
+        const HEIGHT: f32 = 318.0;
+        let view = ctx.content_rect();
+        let x = (current_pos.x + header_drag.x).clamp(
+            view.left() + 8.0,
+            (view.right() - WIDTH - 8.0).max(view.left() + 8.0),
+        );
+        let y = (current_pos.y + header_drag.y).clamp(
+            view.top() + 8.0,
+            (view.bottom() - HEIGHT - 8.0).max(view.top() + 8.0),
+        );
+        ctx.data_mut(|data| data.insert_temp(position_id, pos2(x, y)));
+        ctx.request_repaint();
+    }
     action
 }
 
