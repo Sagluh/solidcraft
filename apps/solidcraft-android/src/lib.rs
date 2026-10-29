@@ -4,6 +4,8 @@
 mod android_files;
 
 use android_files::AndroidFiles;
+use std::collections::HashMap;
+use std::time::Duration;
 use eframe::egui;
 use solidcraft_engine::{Sel, Session};
 use solidcraft_engine::geom::Vec3;
@@ -25,6 +27,8 @@ struct MatePadApp {
     touch: TouchNavigation,
     files: AndroidFiles,
     two_finger_mode: TwoFingerMode,
+    /// Per-document count of committed model changes since the last checkpoint.
+    autosave_steps: HashMap<usize, (u64, u8)>,
 }
 
 /// The Android touch driver emulates the primary mouse button for a finger.
@@ -167,11 +171,19 @@ impl MatePadApp {
         // locale. This is an Android-only preference; desktop remains unchanged.
         // Users can still select another language in Preferences for this run.
         cad.preferences.language = "ru".to_owned();
+        // Desktop already has a robust atomic .solidcraft recovery engine,
+        // but the Android host never enabled it. Its snapshots go into
+        // app-private files, never overwrite a user-selected SAF document.
+        cad.autosave_minutes = 3.0;
+        match android_files::recovery_dir(&android) {
+            Ok(dir) => solidcraft_ui_egui::recovery_ui::start(&mut cad, &dir, Duration::from_secs(180)),
+            Err(message) => cad.set_status(message, true),
+        }
         if let Some(render_state) = &cc.wgpu_render_state {
             // The Android window has no depth attachment; CAD scene depth is offscreen.
             cad.set_wgpu_split(render_state, 24, 0, 1);
         }
-        Self { cad, touch: TouchNavigation::default(), files, two_finger_mode: TwoFingerMode::default() }
+        Self { cad, touch: TouchNavigation::default(), files, autosave_steps: HashMap::new(), two_finger_mode: TwoFingerMode::default() }
     }
 
     /// A small toggle above the viewport navigation bar: two fingers can
@@ -212,6 +224,41 @@ impl MatePadApp {
                         }
                     });
             });
+    }
+
+    /// The five-step checkpoint uses committed document revisions, not
+    /// touchscreen gestures or redraws. Changes may be reported in batches
+    /// (several commands between frames), so count up to five at once.
+    /// The 3-minute cadence is handled independently by recovery_ui::tick.
+    fn count_autosave_steps(&mut self) {
+        if self.cad.autosave.is_none() {
+            return;
+        }
+        let tab = self.cad.docs.active;
+        let revision = self.cad.session.revision;
+        let dirty = self.cad.session.is_dirty();
+        let entry = self.autosave_steps.entry(tab).or_insert((revision, 0));
+        if !dirty {
+            *entry = (revision, 0);
+            return;
+        }
+        if revision < entry.0 {
+            // An unrelated document reused a tab position.
+            *entry = (revision, 0);
+            return;
+        }
+        let delta = revision.saturating_sub(entry.0).min(5) as u8;
+        if delta == 0 {
+            return;
+        }
+        entry.0 = revision;
+        entry.1 = entry.1.saturating_add(delta);
+        if entry.1 >= 5 {
+            entry.1 = 0;
+            // The shared recovery engine schedules a non-blocking atomic
+            // snapshot on its next tick, retaining all undo/redo history.
+            self.cad.big_operation = true;
+        }
     }
 
     /// Android sketch editing controls: select/drag by touch without needing
@@ -355,7 +402,11 @@ impl eframe::App for MatePadApp {
                 ctx.request_repaint();
             }
         }
+        self.count_autosave_steps();
         self.cad.logic(ctx);
+        // Even if the stylus is idle, wake periodically so the three-minute
+        // recovery clock is not delayed until the user touches the screen.
+        ctx.request_repaint_after(Duration::from_secs(15));
         self.files.tick(&mut self.cad);
     }
 
