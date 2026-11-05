@@ -3,7 +3,7 @@
 # Push to `release` to build packages and create/update a DRAFT GitHub Release. The version
 # comes from [workspace.package] in Cargo.toml. An agent verifies the artifacts and publishes
 # the draft separately; see docs/releasing.md. Tags and pushes to main do not trigger releases.
-# At midnight Eastern, changed main commits build and publish a nightly pre-release.
+# Scheduled nightly releases are disabled for this MatePad fork; use manual dispatch.
 # A version with a suffix (0.2.0-rc.1) is a pre-release.
 # The macOS app is signed and notarized when the APPLE_* secrets exist. The Windows binaries and
 # MSI are Authenticode-signed through SignPath Foundation when the SIGNPATH_API_TOKEN secret exists
@@ -25,9 +25,6 @@
 name: Release
 
 on:
-  schedule:
-    - cron: '0 0 * * *'
-      timezone: America/New_York
   push:
     branches: [release]
   workflow_dispatch:
