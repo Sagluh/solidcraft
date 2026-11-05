@@ -454,3 +454,46 @@ fn value_boxes_stay_in_view_and_off_the_cursor() {
     let tiny = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(80.0, 30.0));
     assert!(tiny.contains_rect(egui::Rect::from_min_size(in_view(egui::pos2(-200.0, -200.0), Some(tiny), Some(egui::pos2(40.0, 15.0))), BOX)));
 }
+
+
+/// MatePad regression: a confirmed value is in the document's millimetres, and
+/// a second line starts at the first line's final endpoint. This covers the
+/// CAD geometry independently from Android's touch-event translation.
+#[test]
+fn exact_mm_lines_form_a_connected_chain_without_unit_explosion() {
+    use solidcraft_engine::sketch::Shape;
+
+    let mut h = drawing("sketch.line");
+    type_value(&mut h, "100");
+    h.step(&json!({"key": "Enter"})).unwrap();
+
+    let sid = h.app.session.active_sketch.unwrap();
+    {
+        let state = h.app.session.world_state();
+        let sketch = &state.sketch(sid).unwrap().sketch;
+        assert_eq!(sketch.curves.len(), 1, "the first confirmation creates one segment");
+        let Some(Shape::Line { a, b }) = sketch.shape(0) else {
+            panic!("expected the first segment to be a line");
+        };
+        assert!((a.dist(b) - 100.0).abs() < 0.01, "100 mm must not become kilometres");
+    }
+
+    // The line tool remains active with the previous endpoint as its origin.
+    let first_end = h.app.tool.as_ref().unwrap().pts[0].0;
+    h.step(&json!({"move": {"world": [first_end.x + 15.0, first_end.y + 40.0, 0]}})).unwrap();
+    type_value(&mut h, "50");
+    h.step(&json!({"key": "Enter"})).unwrap();
+
+    let state = h.app.session.world_state();
+    let sketch = &state.sketch(sid).unwrap().sketch;
+    assert_eq!(sketch.curves.len(), 2, "the second confirmation creates a second segment");
+    let Some(Shape::Line { a: first_a, b: first_b }) = sketch.shape(0) else {
+        panic!("expected the first line");
+    };
+    let Some(Shape::Line { a: next_a, b: next_b }) = sketch.shape(1) else {
+        panic!("expected the second line");
+    };
+    assert!((first_a.dist(first_b) - 100.0).abs() < 0.01);
+    assert!((next_a.dist(next_b) - 50.0).abs() < 0.01);
+    assert!(first_b.dist(next_a) < 1e-6, "consecutive segments must share an endpoint");
+}
