@@ -1,4 +1,4 @@
-# Nightly import checks on real-world STEP files (#1397): the external corpus in
+# Optional manual import checks on real-world STEP files (#1397): the external corpus in
 # tests/external-corpus.toml is downloaded (hash-verified), imported headless, and checked
 # against tolerance-based expectations — body counts, total volume and area, time and memory
 # budgets. It is not part of `cargo xtask ci`: it downloads from the internet.
@@ -9,8 +9,6 @@
 name: External corpus
 
 on:
-  schedule:
-    - cron: '40 3 * * *'
   workflow_dispatch:
     inputs:
       only:
